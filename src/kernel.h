@@ -2,20 +2,18 @@
 
 #include "common.h"
 
-extern char __bss[], __bss_end[], __stack_top[];
+// ===== Linker data =====
+extern char __bss[], __bss_end[];
+extern char __stack_top[];
+extern char __free_ram[], __free_ram_end[];
 
+// ===== SBI data ======
 struct sbiret {
     long error;
     long value;
 };
 
-#define PANIC(fmt, ...)                                                        \
-    do {                                                                       \
-        printf("PANIC: %s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);  \
-        while (1) {                                                            \
-        }                                                                      \
-    } while (0)
-
+// ===== Exception handler =====
 struct trap_frame {
     uint32_t ra;
     uint32_t gp;
@@ -50,6 +48,23 @@ struct trap_frame {
     uint32_t sp;
 } __attribute__((packed));
 
+// ===== Multiprocessing =====
+#define PROCS_MAX 8
+
+#define PROC_UNUSED 0
+#define PROC_RUNNABLE 1
+
+struct process {
+    int pid;
+    int state;
+    vaddr_t sp;
+    uint8_t stack[8192];
+};
+struct process procs[PROCS_MAX];
+struct process *current_proc;
+struct process *idle_proc;
+
+// ===== Macros =====
 #define READ_CSR(reg)                                                          \
     ({                                                                         \
         unsigned long __tmp;                                                   \
@@ -61,4 +76,11 @@ struct trap_frame {
     do {                                                                       \
         uint32_t __tmp = (value);                                              \
         __asm__ __volatile__("csrw " #reg ", %0" ::"r"(__tmp));                \
+    } while (0)
+
+#define PANIC(fmt, ...)                                                        \
+    do {                                                                       \
+        printf("PANIC: %s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);  \
+        while (1) {                                                            \
+        }                                                                      \
     } while (0)
