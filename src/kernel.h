@@ -55,6 +55,7 @@ struct trap_frame {
 
 #define PROC_UNUSED 0
 #define PROC_RUNNABLE 1
+#define PROC_EXITED 2
 
 struct process {
     int pid;
@@ -147,6 +148,41 @@ struct virtio_virtq *blk_request_vq;
 struct virtio_blk_req *blk_req;
 paddr_t blk_req_paddr;
 unsigned blk_capacity;
+
+// ===== Filesystem =====
+#define FILES_MAX 2
+#define DISK_MAX_SIZE align_up(sizeof(struct file) * FILES_MAX, SECTOR_SIZE)
+
+struct tar_header {
+    char name[100];
+    char mode[8];
+    char uid[8];
+    char gid[8];
+    char size[12];
+    char mtime[12];
+    char checksum[8];
+    char type;
+    char linkname[100];
+    char magic[6];
+    char version[2];
+    char uname[32];
+    char gname[32];
+    char devmajor[8];
+    char devminor[8];
+    char prefix[155];
+    char padding[12];
+    char data[];
+} __attribute__((packed));
+
+struct file {
+    bool in_use;
+    char name[100];
+    char data[1024];
+    size_t size;
+};
+
+// ===== System calls =====
+#define SCAUSE_ECALL 8
 
 // ===== Macros =====
 #define READ_CSR(reg)                                                          \
