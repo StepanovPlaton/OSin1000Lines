@@ -54,7 +54,7 @@ void map_page(uint32_t *table1, uint32_t vaddr, paddr_t paddr, uint32_t flags) {
 }
 
 // ===== Exception handler =====
-void kernel_entry(void) {
+__attribute__((naked)) __attribute__((aligned(4))) void kernel_entry(void) {
     __asm__ __volatile__("csrrw sp, sscratch, sp\n"
 
                          "addi sp, sp, -4 * 31\n"
@@ -89,9 +89,11 @@ void kernel_entry(void) {
                          "sw s10, 4 * 28(sp)\n"
                          "sw s11, 4 * 29(sp)\n"
 
+                         // Извлечение и сохранение sp в момент исключения.
                          "csrr a0, sscratch\n"
                          "sw a0,  4 * 30(sp)\n"
 
+                         // Сброс стека ядра.
                          "addi a0, sp, 4 * 31\n"
                          "csrw sscratch, a0\n"
 
@@ -182,7 +184,15 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp,
                          "ret\n");
 }
 
-struct process *create_process(uint32_t pc) {
+__attribute__((naked)) void user_entry(void) {
+    __asm__ __volatile__("csrw sepc, %[sepc]        \n"
+                         "csrw sstatus, %[sstatus]  \n"
+                         "sret                      \n"
+                         :
+                         : [sepc] "r"(USER_BASE), [sstatus] "r"(SSTATUS_SPIE));
+}
+
+struct process *create_process(const void *image, size_t image_size) {
     struct process *proc = NULL;
     int i;
     for (i = 0; i < PROCS_MAX; i++) {
@@ -196,25 +206,36 @@ struct process *create_process(uint32_t pc) {
         PANIC("no free process slots");
 
     uint32_t *sp = (uint32_t *)&proc->stack[sizeof(proc->stack)];
-    *--sp = 0;            // s11
-    *--sp = 0;            // s10
-    *--sp = 0;            // s9
-    *--sp = 0;            // s8
-    *--sp = 0;            // s7
-    *--sp = 0;            // s6
-    *--sp = 0;            // s5
-    *--sp = 0;            // s4
-    *--sp = 0;            // s3
-    *--sp = 0;            // s2
-    *--sp = 0;            // s1
-    *--sp = 0;            // s0
-    *--sp = (uint32_t)pc; // ra
+    *--sp = 0;                    // s11
+    *--sp = 0;                    // s10
+    *--sp = 0;                    // s9
+    *--sp = 0;                    // s8
+    *--sp = 0;                    // s7
+    *--sp = 0;                    // s6
+    *--sp = 0;                    // s5
+    *--sp = 0;                    // s4
+    *--sp = 0;                    // s3
+    *--sp = 0;                    // s2
+    *--sp = 0;                    // s1
+    *--sp = 0;                    // s0
+    *--sp = (uint32_t)user_entry; // ra
 
     uint32_t *page_table = (uint32_t *)alloc_pages(1);
+
     for (paddr_t paddr = (paddr_t)__kernel_base;
          paddr < (paddr_t)__free_ram_end; paddr += PAGE_SIZE)
         map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
 
+    for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
+        paddr_t page = alloc_pages(1);
+
+        size_t remaining = image_size - off;
+        size_t copy_size = PAGE_SIZE <= remaining ? PAGE_SIZE : remaining;
+
+        memcpy((void *)page, image + off, copy_size);
+        map_page(page_table, USER_BASE + off, page,
+                 PAGE_U | PAGE_R | PAGE_W | PAGE_X);
+    }
     proc->pid = i + 1;
     proc->state = PROC_RUNNABLE;
     proc->sp = (uint32_t)sp;
@@ -269,14 +290,15 @@ void proc_b_entry(void) {
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
 
+    printf("\n\n");
+
     WRITE_CSR(stvec, (uint32_t)kernel_entry);
 
-    idle_proc = create_process((uint32_t)NULL);
+    idle_proc = create_process(NULL, 0);
     idle_proc->pid = -1;
     current_proc = idle_proc;
 
-    proc_a = create_process((uint32_t)proc_a_entry);
-    proc_b = create_process((uint32_t)proc_b_entry);
+    create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size);
 
     yield();
     PANIC("switched to idle process");

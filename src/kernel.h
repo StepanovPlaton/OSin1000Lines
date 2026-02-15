@@ -7,6 +7,7 @@ extern char __bss[], __bss_end[];
 extern char __stack_top[];
 extern char __free_ram[], __free_ram_end[];
 extern char __kernel_base[];
+extern char _binary_shell_bin_start[], _binary_shell_bin_size[];
 
 // ===== SBI data ======
 struct sbiret {
